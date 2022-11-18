@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="UnattendedHostPersistenceState">
+    <option name="openedFilesInfos">
+      <list>
+        <OpenedFileInfo>
+          <option name="caretOffset" value="4822" />
+          <option name="fileUrl" value="file://$PROJECT_DIR$/../go/pkg/mod/github.com/go-ping/ping@v1.1.0/ping.go" />
+        </OpenedFileInfo>
+        <OpenedFileInfo>
+          <option name="caretOffset" value="0" />
+          <option name="fileUrl" value="file://$PROJECT_DIR$/go.mod" />
+        </OpenedFileInfo>
+        <OpenedFileInfo>
+          <option name="caretOffset" value="1693" />
+          <option name="fileUrl" value="file://$PROJECT_DIR$/ping/main.go" />
+        </OpenedFileInfo>
+      </list>
+    </option>
+  </component>
+</project>
