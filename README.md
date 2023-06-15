@@ -1,3 +1,3 @@
 # gopinger
 
-Ping routers by loop from 11 to some N
+```send async pings to google via 4G router network interface 192.168.11.100 ```
