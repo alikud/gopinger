@@ -14,20 +14,19 @@ import (
 	"time"
 )
 
-func RunPingerWithCtx(ctx context.Context, quitCh chan error, pinger *ping.Pinger) error {
+func RunPingerWithCtx(ctx context.Context, quitCh chan error, pinger *ping.Pinger) {
 	err := pinger.Run()
 	if err != nil {
 		quitCh <- errors.New(err.Error())
-		return err
 	}
 	select {
 	case <-ctx.Done():
 		quitCh <- ctx.Err()
-
+	case <-quitCh:
+		return
 	default:
 		quitCh <- nil
 	}
-	return nil
 }
 
 func SendPingByRouter(packegCount int, dhcp int) error {
