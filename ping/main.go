@@ -1,27 +1,33 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"github.com/go-ping/ping"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/slices"
-	"net/http"
-	"os"
+	"os/user"
 	"strconv"
 	"strings"
 	"time"
 )
 
-const PACKAGECOUNT = 3
-
-func RebootRouter(key string, dhcpID int) {
-	url := fmt.Sprintf("http://localhost:8881/reboot?key=%s&id=%d", key, dhcpID)
-	_, err := http.Get(url)
+func RunPingerWithCtx(ctx context.Context, quitCh chan error, pinger *ping.Pinger) error {
+	err := pinger.Run()
 	if err != nil {
-		log.Error(err)
+		quitCh <- errors.New(err.Error())
+		return err
 	}
+	select {
+	case <-ctx.Done():
+		quitCh <- ctx.Err()
+
+	default:
+		quitCh <- nil
+	}
+	return nil
 }
 
 func SendPingByRouter(packegCount int, dhcp int) error {
@@ -29,17 +35,17 @@ func SendPingByRouter(packegCount int, dhcp int) error {
 	sourceaddr := fmt.Sprintf("192.168.%d.100", dhcp)
 
 	pinger.Source = sourceaddr
-	pinger.Timeout = 20 * time.Second
+	pinger.Timeout = 3 * time.Second
 	pinger.SetPrivileged(true)
 	pinger.Count = packegCount
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 
-	err := pinger.Run() // Blocks until finished.
-	if err != nil {
-		log.Error(err)
-		return err
-	}
+	defer cancel()
 
-	//fmt.Printf("Check %s\n", sourceaddr)
+	// Can run a lot of time
+	quitCh := make(chan error, 1)
+	go RunPingerWithCtx(ctx, quitCh, pinger)
+
 	stats := pinger.Statistics() // get send/receive/duplicate/rtt stats
 
 	log.Infof("Send %d packeges, recived %d for %s\n", pinger.Count, stats.PacketsRecv, sourceaddr)
@@ -51,65 +57,50 @@ func SendPingByRouter(packegCount int, dhcp int) error {
 	return nil
 }
 
-func SendTelegramAllert(dhcp int, serverID string) {
-	token := "5659413160:AAFoiIsvluEfluRExg29CNLZFZpzBcwr-vs"
-	//chatID := "951131561"
-
-	//my
-	chatID := "170308082"
-	q := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage?chat_id=%s&text=%s , %d", token, chatID, serverID, dhcp)
-	_, err := http.Get(q)
-	if err != nil {
-		log.Errorf("Error to sending telegram")
-	}
-}
-
 func main() {
-	//currentUser, _ := user.Current()
-	//path := fmt.Sprintf("/%s/pinger.log", currentUser.Username)
+	currentUser, _ := user.Current()
+	log.Infof("as %s execute pinger script", currentUser.Username)
+
 	//f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
-	log.SetOutput(os.Stdout)
+	//log.SetOutput(f)
 	//log.SetFormatter(&log.JSONFormatter{})
 	//log.SetOutput(os.Stdout)
+
 	log.Infof("Start script!")
 
 	var count int
 	var ignored string
-	var apikey string
-	var serverName string
+	var serverUID string
+	const PACKAGECOUNT = 8
 
 	flag.IntVar(&count, "p", 11, "enter port to check, default 11")
 	flag.StringVar(&ignored, "i", "", "ports to ignore by , ")
-	flag.StringVar(&apikey, "key", "", "key which access to web api")
-	flag.StringVar(&serverName, "name", "some server", "server name to correctly detect problem")
+	flag.StringVar(&serverUID, "name", "some server", "server name to correctly detect problem")
 	flag.Parse()
 
 	s := strings.Split(ignored, ",")
 
 	var ports []int
 	for _, value := range s {
-		val, _ := strconv.Atoi(value)
+		val, err := strconv.Atoi(value)
+
+		if err != nil {
+			log.Errorf("Can't convert symbol to in")
+			return
+		}
+
 		ports = append(ports, val)
 	}
-	//i := count
+
 	for i := 11; i < count; i++ {
 		if ok := slices.Contains(ports, i); !ok {
 			err := SendPingByRouter(PACKAGECOUNT, i)
 			if err != nil {
-				log.Errorf("Start reboot router %d", i)
-				RebootRouter(apikey, i)
-				time.Sleep(80 * time.Second)
-				log.Infof("Start ping router after reboot %d", i)
-				err := SendPingByRouter(PACKAGECOUNT, i)
-				if err != nil {
-					log.Error(err)
-					log.Infof("Send telegram allert to %s %d", serverName, i)
-					SendTelegramAllert(i, serverName)
-				}
+				log.Warnf("router: %d have problems with ping, ", err.Error())
 			}
 		}
 	}
 
 }
 
-//sudo go run /home/mac/code/ping/main.go -p 30 -key shir -name po1
+//go run main.go -p 30 -name po1
