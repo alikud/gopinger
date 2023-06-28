@@ -1,68 +1,74 @@
 package main
 
 import (
-	"context"
-	"errors"
+	"flag"
 	"fmt"
-	"github.com/go-ping/ping"
-	log "github.com/sirupsen/logrus"
 	"os/user"
 	"time"
+
+	"sync"
+
+	"github.com/go-ping/ping"
+	log "github.com/sirupsen/logrus"
 )
 
-func RunPingerWithCtx(ctx context.Context, errChan chan error, pinger *ping.Pinger) {
-	err := pinger.Run()
-	if err != nil {
-		errChan <- errors.New(err.Error())
-	}
-	select {
-	case <-ctx.Done():
-		errChan <- ctx.Err()
-	case <-errChan:
-		close(errChan)
-	default:
-		errChan <- nil
-	}
+type PingerConfig struct {
+	Timeout time.Duration
+	Send    int
+	PingUrl string
 }
 
-func SendPingByRouter(packegCount int, dhcp int) error {
-	pinger, _ := ping.NewPinger("www.google.com")
+func SendPingByRouter(cfg PingerConfig, dhcp int, wg *sync.WaitGroup) {
+
+	defer wg.Done()
+
+	pinger, _ := ping.NewPinger(cfg.PingUrl)
 	sourceaddr := fmt.Sprintf("192.168.%d.100", dhcp)
 
 	pinger.Source = sourceaddr
-	pinger.Timeout = 3 * time.Second
+	pinger.Timeout = cfg.Timeout
 	pinger.SetPrivileged(true)
-	pinger.Count = packegCount
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	pinger.Count = cfg.Send
 
-	defer cancel()
+	err := pinger.Run()
 
-	// Can run a lot of time
-	quitCh := make(chan error, 1)
-	go RunPingerWithCtx(ctx, quitCh, pinger)
+	if err != nil {
+		log.Warningf("error with ping %d dhcp", dhcp)
+
+	}
 
 	stats := pinger.Statistics() // get send/receive/duplicate/rtt stats
 
 	log.Infof("Send %d packeges, recived %d for %s\n", pinger.Count, stats.PacketsRecv, sourceaddr)
 	if stats.PacketsRecv == 0 {
 		log.Warningf("Received 0 packages from dhcp: %d", dhcp)
-		//return errors.New("get 0 packages after ping")
 	}
 
-	return nil
 }
 
 func main() {
+
+	lastDHCP := flag.Int("stop", 11, "A number which represent last dhcp addr. of network interface")
+	flag.Parse()
+
 	currentUser, _ := user.Current()
 	log.Infof("as %s execute pinger script", currentUser.Username)
 	log.Infof("Start script!")
 
-	const PACKAGECOUNT = 8
+	cfg := PingerConfig{
+		Timeout: 5 * time.Second,
+		Send:    8,
+		PingUrl: "www.google.com",
+	}
 
-	for i := 11; i < 30; i++ {
-		SendPingByRouter(PACKAGECOUNT, i)
+	var wg sync.WaitGroup
+
+	for i := 11; i < *lastDHCP; i++ {
+		wg.Add(1)
+		go SendPingByRouter(cfg, i, &wg)
+		wg.Wait()
 	}
 
 }
 
-//go run main.go
+// go run main.go -stop 55
